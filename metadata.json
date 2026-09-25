@@ -1,0 +1,6 @@
+{
+  "name": "Go Arrow Puzzle",
+  "description": "Tap Away style arrow puzzle game. Clear winding arrow mazes, plan your moves, and solve captivating brain teasers!",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
