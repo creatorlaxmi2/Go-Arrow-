@@ -70,8 +70,11 @@ fun SettingsScreen(
     modifier: Modifier = Modifier
 ) {
     var showResetDialog by remember { mutableStateOf(false) }
-    var infoDialogTitle by remember { mutableStateOf<String?>(null) }
-    var infoDialogContent by remember { mutableStateOf<String?>(null) }
+    var showHowToPlayModal by remember { mutableStateOf(false) }
+    var showAboutModal by remember { mutableStateOf(false) }
+    var showPrivacyRightsModal by remember { mutableStateOf(false) }
+    var showPrivacyPrefsModal by remember { mutableStateOf(false) }
+    var removeAdsModal by remember { mutableStateOf(false) }
 
     if (showResetDialog) {
         AlertDialog(
@@ -98,14 +101,30 @@ fun SettingsScreen(
         )
     }
 
-    if (infoDialogTitle != null) {
+    if (showHowToPlayModal) {
+        HowToPlayDialog(onDismiss = { showHowToPlayModal = false })
+    }
+
+    if (showAboutModal) {
+        AboutDialog(onDismiss = { showAboutModal = false })
+    }
+
+    if (showPrivacyRightsModal) {
+        PrivacyRightsDialog(onDismiss = { showPrivacyRightsModal = false })
+    }
+
+    if (showPrivacyPrefsModal) {
+        PrivacyPreferencesDialog(onDismiss = { showPrivacyPrefsModal = false })
+    }
+
+    if (removeAdsModal) {
         AlertDialog(
-            onDismissRequest = { infoDialogTitle = null },
-            title = { Text(infoDialogTitle ?: "", fontWeight = FontWeight.Bold) },
-            text = { Text(infoDialogContent ?: "") },
+            onDismissRequest = { removeAdsModal = false },
+            title = { Text("Remove Ads", fontWeight = FontWeight.Bold) },
+            text = { Text("Ad-free mode is already fully active for this version of Go Arrow Puzzle!") },
             confirmButton = {
-                Button(onClick = { infoDialogTitle = null }) {
-                    Text("Got It")
+                Button(onClick = { removeAdsModal = false }) {
+                    Text("Awesome")
                 }
             }
         )
@@ -248,37 +267,25 @@ fun SettingsScreen(
                     icon = Icons.Default.Help,
                     iconTint = Color(0xFF10B981),
                     title = "Help & How to Play",
-                    onClick = {
-                        infoDialogTitle = "Help"
-                        infoDialogContent = "Tap arrows to launch them in their pointing direction. Clear all arrows off the board to win!"
-                    }
+                    onClick = { showHowToPlayModal = true }
                 )
                 SettingNavigationItem(
                     icon = Icons.Default.Info,
                     iconTint = ElectricBlue,
                     title = "About Game",
-                    onClick = {
-                        infoDialogTitle = "About Go Arrow Puzzle"
-                        infoDialogContent = "Version 1.0\nA challenging puzzle game of direction, logic, and planning."
-                    }
+                    onClick = { showAboutModal = true }
                 )
                 SettingNavigationItem(
                     icon = Icons.Default.PrivacyTip,
                     iconTint = Color(0xFF8B5CF6),
                     title = "Privacy Rights",
-                    onClick = {
-                        infoDialogTitle = "Privacy Rights"
-                        infoDialogContent = "We respect your privacy. All game progress is stored securely on your device."
-                    }
+                    onClick = { showPrivacyRightsModal = true }
                 )
                 SettingNavigationItem(
                     icon = Icons.Default.Security,
                     iconTint = Color(0xFF0EA5E9),
                     title = "Privacy Preferences",
-                    onClick = {
-                        infoDialogTitle = "Privacy Preferences"
-                        infoDialogContent = "You have full control over your data. No personal data is shared with third parties."
-                    }
+                    onClick = { showPrivacyPrefsModal = true }
                 )
                 SettingNavigationItem(
                     icon = Icons.Default.DeleteForever,
@@ -303,10 +310,7 @@ fun SettingsScreen(
                     icon = Icons.Default.Block,
                     iconTint = BlockedRed,
                     title = "Remove Ads (Ad-Free Experience)",
-                    onClick = {
-                        infoDialogTitle = "Remove Ads"
-                        infoDialogContent = "Ad-free mode is already active for this version!"
-                    }
+                    onClick = { removeAdsModal = true }
                 )
             }
         }

@@ -45,6 +45,8 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
+        com.example.ads.AdMobManager.initialize(applicationContext)
+
         val viewModel = try {
             val database = GameDatabase.getInstance(applicationContext)
             val repository = GameRepository(database.gameDao())
@@ -64,7 +66,6 @@ class MainActivity : ComponentActivity() {
                 Surface(
                     modifier = Modifier
                         .fillMaxSize()
-                        .safeDrawingPadding()
                 ) {
                     GoArrowPuzzleApp(viewModel = viewModel)
                 }

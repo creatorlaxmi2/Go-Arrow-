@@ -396,6 +396,15 @@ fun HomeScreen(
                     )
                 }
             }
+
+            // Banner Ad at the bottom of Home Screen
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 8.dp)
+            ) {
+                com.example.ads.AdBannerView()
+            }
         }
     }
 }

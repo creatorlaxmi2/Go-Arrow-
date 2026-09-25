@@ -33,11 +33,19 @@ import androidx.compose.ui.window.Dialog
 import com.example.ui.theme.BlockedRed
 import com.example.ui.theme.ElectricBlue
 
+import androidx.compose.material.icons.filled.PlayCircle
+import androidx.compose.ui.graphics.Color
+import com.example.ads.AdMobManager
+import androidx.compose.ui.platform.LocalContext
+import android.app.Activity
+
 @Composable
 fun GameOverModal(
     onRestart: () -> Unit,
-    onHome: () -> Unit
+    onHome: () -> Unit,
+    onWatchAdToRevive: () -> Unit
 ) {
+    val context = LocalContext.current
     Dialog(onDismissRequest = {}) {
         Card(
             shape = RoundedCornerShape(26.dp),
@@ -74,13 +82,40 @@ fun GameOverModal(
                 Spacer(modifier = Modifier.height(8.dp))
 
                 Text(
-                    text = "Out of hearts! Watch out for blocked arrows.",
+                    text = "Out of hearts! Watch a rewarded ad to revive with +3 hearts or restart.",
                     fontSize = 14.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center
                 )
 
-                Spacer(modifier = Modifier.height(24.dp))
+                Spacer(modifier = Modifier.height(20.dp))
+
+                // Rewarded Ad Button
+                Button(
+                    onClick = {
+                        val activity = context as? Activity
+                        if (activity != null) {
+                            AdMobManager.showRewardedAd(
+                                activity = activity,
+                                onRewardEarned = onWatchAdToRevive,
+                                onAdDismissedOrFailed = {}
+                            )
+                        } else {
+                            onWatchAdToRevive()
+                        }
+                    },
+                    shape = RoundedCornerShape(16.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(52.dp)
+                        .testTag("watch_ad_revive_button")
+                ) {
+                    Icon(imageVector = Icons.Default.PlayCircle, contentDescription = null, tint = Color.White)
+                    Text(text = " Watch Ad for +3 Hearts", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Color.White)
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
 
                 Button(
                     onClick = onRestart,
@@ -88,25 +123,25 @@ fun GameOverModal(
                     colors = ButtonDefaults.buttonColors(containerColor = ElectricBlue),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(52.dp)
+                        .height(50.dp)
                         .testTag("game_over_restart_button")
                 ) {
                     Icon(imageVector = Icons.Default.Refresh, contentDescription = null)
-                    Text(text = " Restart Level", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    Text(text = " Restart Level", fontWeight = FontWeight.Bold, fontSize = 15.sp)
                 }
 
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(10.dp))
 
                 OutlinedButton(
                     onClick = onHome,
                     shape = RoundedCornerShape(16.dp),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(50.dp)
+                        .height(48.dp)
                         .testTag("game_over_home_button")
                 ) {
                     Icon(imageVector = Icons.Default.Home, contentDescription = null)
-                    Text(text = " Home", fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+                    Text(text = " Home", fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
                 }
             }
         }

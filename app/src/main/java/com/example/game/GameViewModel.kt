@@ -467,6 +467,16 @@ class GameViewModel(
         }
     }
 
+    fun reviveGame() {
+        _uiState.update {
+            it.copy(
+                heartsRemaining = 3,
+                gameStatus = GameStatus.PLAYING
+            )
+        }
+        startTimer()
+    }
+
     fun toggleSound(enabled: Boolean) {
         soundManager.isSoundEnabled = enabled
         viewModelScope.launch { repository.updateSettings(sound = enabled) }

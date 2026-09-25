@@ -346,7 +346,8 @@ fun GameScreen(
         if (uiState.gameStatus == GameStatus.GAME_OVER) {
             GameOverModal(
                 onRestart = { viewModel.restartLevel() },
-                onHome = onBack
+                onHome = onBack,
+                onWatchAdToRevive = { viewModel.reviveGame() }
             )
         }
 
