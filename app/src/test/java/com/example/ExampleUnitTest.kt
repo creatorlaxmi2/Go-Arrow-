@@ -32,11 +32,15 @@ class ExampleUnitTest {
   }
 
   @Test
-  fun testAllLevelsAreSolvable() {
-    for (lvl in 1..5) {
-      val level = LevelRepository.getLevel(lvl)
-      val solvable = CollisionEngine.isPuzzleSolvable(level.arrows, level.cols, level.rows)
-      assertTrue("Level $lvl must be solvable to completion", solvable)
+  fun testRestartLevelsSolvability() {
+    for (lvl in listOf(1, 2, 5, 10, 31)) {
+      for (attempt in 1..5) {
+        val restarted = LevelRepository.getLevel(lvl, isRestart = true)
+        assertNotNull(restarted)
+        assertTrue("Restarted level $lvl attempt $attempt must have arrows", restarted.arrows.isNotEmpty())
+        val solvable = CollisionEngine.isPuzzleSolvable(restarted.arrows, restarted.cols, restarted.rows)
+        assertTrue("Restarted level $lvl attempt $attempt must be solvable", solvable)
+      }
     }
   }
 }

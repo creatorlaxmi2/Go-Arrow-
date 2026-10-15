@@ -66,6 +66,7 @@ class GameViewModel(
     private val undoStack = mutableListOf<UndoSnapshot>()
     private var timerJob: Job? = null
     private var shakeJob: Job? = null
+    private var moveJob: Job? = null
 
     init {
         viewModelScope.launch {
@@ -105,7 +106,13 @@ class GameViewModel(
     }
 
     fun loadLevel(levelId: Int, isDaily: Boolean = false) {
+        moveJob?.cancel()
+        moveJob = null
+        shakeJob?.cancel()
+        shakeJob = null
         timerJob?.cancel()
+        timerJob = null
+
         val currentDifficulty = _uiState.value.difficulty
         val level = LevelRepository.getLevel(levelId, isRestart = false, difficultySetting = currentDifficulty)
         undoStack.clear()
@@ -114,7 +121,7 @@ class GameViewModel(
             it.copy(
                 currentLevelId = levelId,
                 levelData = level,
-                arrows = level.arrows,
+                arrows = level.arrows.map { a -> a.copy(state = ArrowState.IDLE, flyProgress = 0f, shakeOffset = 0f) },
                 heartsRemaining = 3,
                 moves = 0,
                 score = 0,
@@ -126,6 +133,7 @@ class GameViewModel(
             )
         }
 
+        soundManager.resumeBgm()
         startTimer()
     }
 
@@ -182,8 +190,9 @@ class GameViewModel(
         hapticManager.vibrateSuccess()
 
         // Animate flying arrow smoothly with FastOutSlowIn acceleration
-        viewModelScope.launch {
-            val totalFrames = 20
+        moveJob?.cancel()
+        moveJob = viewModelScope.launch {
+            val totalFrames = 18
             val frameDelay = 16L // ~60 FPS
 
             for (frame in 1..totalFrames) {
@@ -191,6 +200,7 @@ class GameViewModel(
                 // Smooth acceleration curve: smooth launch, fast slither and shoot
                 val progress = t * t * (3f - 2f * t)
                 _uiState.update { curr ->
+                    if (curr.gameStatus != GameStatus.PLAYING) return@update curr
                     curr.copy(
                         arrows = curr.arrows.map {
                             if (it.id == arrow.id) {
@@ -207,6 +217,7 @@ class GameViewModel(
 
             // Mark as removed
             _uiState.update { curr ->
+                if (curr.gameStatus != GameStatus.PLAYING) return@update curr
                 curr.copy(
                     arrows = curr.arrows.map {
                         if (it.id == arrow.id) {
@@ -218,14 +229,17 @@ class GameViewModel(
 
             // Check if level complete
             val remaining = _uiState.value.arrows.count { it.state != ArrowState.REMOVED }
-            if (remaining == 0) {
+            if (remaining == 0 && _uiState.value.gameStatus == GameStatus.PLAYING) {
                 handleLevelComplete()
             }
         }
     }
 
     private fun handleBlockedMove(arrow: ArrowModel) {
-        val newHearts = _uiState.value.heartsRemaining - 1
+        val currentHearts = _uiState.value.heartsRemaining
+        if (currentHearts <= 0) return
+
+        val newHearts = currentHearts - 1
 
         soundManager.playBlocked()
         hapticManager.vibrateBlocked()
@@ -243,13 +257,14 @@ class GameViewModel(
 
         shakeJob?.cancel()
         shakeJob = viewModelScope.launch {
-            val steps = 16
+            val steps = 14
             val stepDelay = 16L
             for (step in 1..steps) {
                 val t = step.toFloat() / steps.toFloat()
                 // Damped elastic bump recoil in direction of arrow
                 val offset = sin(t * Math.PI.toFloat() * 3.5f) * (1f - t) * 11f
                 _uiState.update { curr ->
+                    if (curr.gameStatus != GameStatus.PLAYING) return@update curr
                     curr.copy(
                         arrows = curr.arrows.map {
                             when (it.id) {
@@ -266,6 +281,7 @@ class GameViewModel(
 
             // Reset to idle
             _uiState.update { curr ->
+                if (curr.gameStatus != GameStatus.PLAYING) return@update curr
                 curr.copy(
                     arrows = curr.arrows.map {
                         if (it.id == arrow.id || it.id == blockingArrow?.id) {
@@ -277,7 +293,11 @@ class GameViewModel(
 
             if (newHearts <= 0) {
                 timerJob?.cancel()
-                _uiState.update { it.copy(gameStatus = GameStatus.GAME_OVER) }
+                _uiState.update { curr ->
+                    if (curr.gameStatus == GameStatus.PLAYING) {
+                        curr.copy(gameStatus = GameStatus.GAME_OVER)
+                    } else curr
+                }
             }
         }
     }
@@ -381,64 +401,38 @@ class GameViewModel(
     }
 
     fun restartLevel() {
+        moveJob?.cancel()
+        moveJob = null
+        shakeJob?.cancel()
+        shakeJob = null
+        timerJob?.cancel()
+        timerJob = null
+        undoStack.clear()
+
         val currentId = _uiState.value.currentLevelId
         val isDaily = _uiState.value.isDailyChallenge
         val currentDifficulty = _uiState.value.difficulty
-        timerJob?.cancel()
-        undoStack.clear()
 
-        viewModelScope.launch {
-            _uiState.update {
-                it.copy(
-                    arrows = emptyList(),
-                    gameStatus = GameStatus.PLAYING,
-                    moves = 0,
-                    score = 0,
-                    elapsedTimeSeconds = 0,
-                    heartsRemaining = 3,
-                    starsEarned = 0,
-                    canUndo = false
-                )
-            }
-            delay(150)
+        val newLevel = LevelRepository.getLevel(currentId, isRestart = true, difficultySetting = currentDifficulty)
 
-            val level = LevelRepository.getLevel(currentId, isRestart = true, difficultySetting = currentDifficulty)
-            val initialArrows = level.arrows.map { it.copy(spawnProgress = 0f) }
-
-            _uiState.update {
-                it.copy(
-                    currentLevelId = currentId,
-                    levelData = level,
-                    arrows = initialArrows,
-                    isDailyChallenge = isDaily
-                )
-            }
-
-            for (i in initialArrows.indices) {
-                delay(70)
-                viewModelScope.launch {
-                    val anim = androidx.compose.animation.core.Animatable(0f)
-                    anim.animateTo(
-                        targetValue = 1f,
-                        animationSpec = androidx.compose.animation.core.tween(
-                            durationMillis = 350,
-                            easing = androidx.compose.animation.core.FastOutSlowInEasing
-                        )
-                    ) {
-                        val currentVal = value
-                        _uiState.update { state ->
-                            val updated = state.arrows.toMutableList()
-                            if (i < updated.size) {
-                                updated[i] = updated[i].copy(spawnProgress = currentVal)
-                            }
-                            state.copy(arrows = updated)
-                        }
-                    }
-                }
-            }
-
-            startTimer()
+        _uiState.update {
+            it.copy(
+                currentLevelId = currentId,
+                levelData = newLevel,
+                arrows = newLevel.arrows.map { a -> a.copy(state = ArrowState.IDLE, flyProgress = 0f, shakeOffset = 0f) },
+                heartsRemaining = 3,
+                moves = 0,
+                score = 0,
+                elapsedTimeSeconds = 0,
+                gameStatus = GameStatus.PLAYING,
+                starsEarned = 0,
+                canUndo = false,
+                isDailyChallenge = isDaily
+            )
         }
+
+        soundManager.resumeBgm()
+        startTimer()
     }
 
     fun setDifficulty(difficulty: String) {
@@ -456,6 +450,7 @@ class GameViewModel(
     fun pauseGame() {
         if (_uiState.value.gameStatus == GameStatus.PLAYING) {
             timerJob?.cancel()
+            soundManager.pauseBgm()
             _uiState.update { it.copy(gameStatus = GameStatus.PAUSED) }
         }
     }
@@ -463,17 +458,26 @@ class GameViewModel(
     fun resumeGame() {
         if (_uiState.value.gameStatus == GameStatus.PAUSED) {
             _uiState.update { it.copy(gameStatus = GameStatus.PLAYING) }
+            soundManager.resumeBgm()
             startTimer()
         }
     }
 
     fun reviveGame() {
-        _uiState.update {
-            it.copy(
+        moveJob?.cancel()
+        moveJob = null
+        shakeJob?.cancel()
+        shakeJob = null
+        _uiState.update { curr ->
+            curr.copy(
                 heartsRemaining = 3,
-                gameStatus = GameStatus.PLAYING
+                gameStatus = GameStatus.PLAYING,
+                arrows = curr.arrows.map {
+                    if (it.state == ArrowState.BLOCKED) it.copy(state = ArrowState.IDLE, shakeOffset = 0f) else it
+                }
             )
         }
+        soundManager.resumeBgm()
         startTimer()
     }
 

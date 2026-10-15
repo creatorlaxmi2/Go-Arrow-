@@ -1,0 +1,29 @@
+Subject: 🎮 Invitation to Join Closed Testing for Go Arrow Puzzle!
+
+Hi everyone,
+
+I am excited to invite you to participate in the closed testing phase for my new Android puzzle game, Go Arrow Puzzle! 
+
+To make sure the game is polished and bug-free before its official release on Google Play, I need your help testing it.
+
+Because this is a closed test, Google requires you to join our testing group first before downloading the app. Please follow these quick steps:
+
+Step 1: Join our Google Group (Tester List)
+- Group Email: creatorlaxmi2@googlegroups.com
+- Group Web Link: https://groups.google.com/g/creatorlaxmi2
+*(Make sure to join using the same Google account you use on your Android phone).*
+
+Step 2: Opt-in to the Test
+- Click this web opt-in link and tap "Become a Tester":
+  https://play.google.com/apps/testing/com.aistudio.arrowpuzzle.qvkztp
+
+Step 3: Download the App on Google Play
+- Once you've opted in, you can download and install the game here:
+  https://play.google.com/store/apps/details?id=com.aistudio.arrowpuzzle.qvkztp
+
+Please let me know if you encounter any bugs, have suggestions, or want to share feedback about gameplay, levels, or audio effects. 
+
+Thank you so much for your support!
+
+Best regards,
+Go Arrow Puzzle Team

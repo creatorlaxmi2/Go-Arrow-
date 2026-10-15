@@ -126,7 +126,7 @@ fun PauseModal(
                         .testTag("pause_restart_button")
                 ) {
                     Icon(imageVector = Icons.Default.Refresh, contentDescription = null)
-                    Text(text = " Restart", fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+                    Text(text = " Restart (New Puzzle)", fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
                 }
 
                 Spacer(modifier = Modifier.height(10.dp))

@@ -41,21 +41,25 @@ enum class AppScreen {
 
 class MainActivity : ComponentActivity() {
 
+    private var soundManager: SoundManager? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
         com.example.ads.AdMobManager.initialize(applicationContext)
 
+        val sm = SoundManager(applicationContext)
+        soundManager = sm
+
         val viewModel = try {
             val database = GameDatabase.getInstance(applicationContext)
             val repository = GameRepository(database.gameDao())
-            val soundManager = SoundManager(applicationContext)
             val hapticManager = HapticManager(applicationContext)
-            GameViewModel(repository, soundManager, hapticManager)
+            GameViewModel(repository, sm, hapticManager)
         } catch (_: Throwable) {
             val inMem = androidx.room.Room.inMemoryDatabaseBuilder(applicationContext, GameDatabase::class.java).build()
-            GameViewModel(GameRepository(inMem.gameDao()), SoundManager(applicationContext), HapticManager(applicationContext))
+            GameViewModel(GameRepository(inMem.gameDao()), sm, HapticManager(applicationContext))
         }
 
         setContent {
@@ -71,6 +75,21 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        soundManager?.resumeBgm()
+    }
+
+    override fun onPause() {
+        super.onPause()
+        soundManager?.pauseBgm()
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        soundManager?.release()
     }
 }
 

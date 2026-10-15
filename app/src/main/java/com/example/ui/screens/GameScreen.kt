@@ -133,16 +133,30 @@ fun GameScreen(
                     color = Color(0xFF0F172A)
                 )
 
-                IconButton(
-                    onClick = { viewModel.pauseGame() },
-                    modifier = Modifier.size(40.dp).testTag("game_settings_button")
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Settings,
-                        contentDescription = "Settings",
-                        tint = ElectricBlue,
-                        modifier = Modifier.size(24.dp)
-                    )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(
+                        onClick = { viewModel.restartLevel() },
+                        modifier = Modifier.size(40.dp).testTag("game_quick_restart_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Refresh,
+                            contentDescription = "Restart with New Puzzle",
+                            tint = ElectricBlue,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+
+                    IconButton(
+                        onClick = { viewModel.pauseGame() },
+                        modifier = Modifier.size(40.dp).testTag("game_settings_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Settings,
+                            contentDescription = "Settings",
+                            tint = ElectricBlue,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
                 }
             }
 

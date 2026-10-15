@@ -72,10 +72,14 @@ object CollisionEngine {
             .map { it to it.toSegments() }
 
         // Step forward from head until out of bounds
+        if (dir.dx == 0 && dir.dy == 0) return null
         var cx = head.x + dir.dx
         var cy = head.y + dir.dy
+        var step = 0
+        val maxSteps = max(cols, rows) + 4
 
-        while (cx in 0 until cols && cy in 0 until rows) {
+        while (cx in 0 until cols && cy in 0 until rows && step < maxSteps) {
+            step++
             for ((otherArrow, segments) in others) {
                 for (seg in segments) {
                     if (seg.containsPoint(cx, cy)) {

@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ad-services-config>
+    <topics allowAllToCalculate="false" />
+    <attribution allowAllToCalculate="false" />
+</ad-services-config>

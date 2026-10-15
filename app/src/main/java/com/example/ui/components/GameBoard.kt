@@ -68,29 +68,43 @@ fun GameBoard(
     onArrowTapped: (ArrowModel) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val hasHintedArrow = arrows.any { it.state == ArrowState.HINTED }
     val infiniteTransition = rememberInfiniteTransition(label = "pulse_anim")
-    val pulseGlow by infiniteTransition.animateFloat(
-        initialValue = 0.35f,
-        targetValue = 1.0f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(650, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "hint_pulse"
-    )
-    val pulseScale by infiniteTransition.animateFloat(
-        initialValue = 1.0f,
-        targetValue = 1.08f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(650, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "hint_scale"
-    )
+    val pulseGlow by if (hasHintedArrow) {
+        infiniteTransition.animateFloat(
+            initialValue = 0.35f,
+            targetValue = 1.0f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(650, easing = FastOutSlowInEasing),
+                repeatMode = RepeatMode.Reverse
+            ),
+            label = "hint_pulse"
+        )
+    } else {
+        remember { mutableStateOf(1.0f) }
+    }
+
+    val pulseScale by if (hasHintedArrow) {
+        infiniteTransition.animateFloat(
+            initialValue = 1.0f,
+            targetValue = 1.08f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(650, easing = FastOutSlowInEasing),
+                repeatMode = RepeatMode.Reverse
+            ),
+            label = "hint_scale"
+        )
+    } else {
+        remember { mutableStateOf(1.0f) }
+    }
 
     var tapRipplePos by remember { mutableStateOf<Offset?>(null) }
     val rippleAnim = remember { androidx.compose.animation.core.Animatable(0f) }
     val coroutineScope = androidx.compose.runtime.rememberCoroutineScope()
+
+    val currentLevel by androidx.compose.runtime.rememberUpdatedState(level)
+    val currentArrows by androidx.compose.runtime.rememberUpdatedState(arrows)
+    val currentOnArrowTapped by androidx.compose.runtime.rememberUpdatedState(onArrowTapped)
 
     Box(
         modifier = modifier
@@ -105,11 +119,12 @@ fun GameBoard(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(16.dp)
-                .pointerInput(level, arrows) {
+                .pointerInput(Unit) {
                     detectTapGestures { tapOffset ->
-                        val cellW = size.width.toFloat() / (level.cols + 1)
-                        val cellH = size.height.toFloat() / (level.rows + 1)
-                        val touchRadiusPx = 34.dp.toPx()
+                        val activeLevel = currentLevel
+                        val cellW = size.width.toFloat() / (activeLevel.cols + 1)
+                        val cellH = size.height.toFloat() / (activeLevel.rows + 1)
+                        val touchRadiusPx = maxOf(44.dp.toPx(), minOf(cellW, cellH) * 0.75f)
 
                         // Trigger expanding tap ripple
                         tapRipplePos = tapOffset
@@ -117,7 +132,7 @@ fun GameBoard(
                             rippleAnim.snapTo(0f)
                             rippleAnim.animateTo(
                                 targetValue = 1f,
-                                animationSpec = tween(durationMillis = 350, easing = LinearEasing)
+                                animationSpec = tween(durationMillis = 280, easing = LinearEasing)
                             )
                             tapRipplePos = null
                         }
@@ -126,7 +141,7 @@ fun GameBoard(
                         var bestArrow: ArrowModel? = null
                         var minDistance = Float.MAX_VALUE
 
-                        arrows.filter { it.state != ArrowState.REMOVED && it.state != ArrowState.FLYING }.forEach { arrow ->
+                        currentArrows.filter { it.state != ArrowState.REMOVED && it.state != ArrowState.FLYING }.forEach { arrow ->
                             val dist = distanceToArrow(arrow, tapOffset, cellW, cellH)
                             if (dist < touchRadiusPx && dist < minDistance) {
                                 minDistance = dist
@@ -134,7 +149,7 @@ fun GameBoard(
                             }
                         }
 
-                        bestArrow?.let { onArrowTapped(it) }
+                        bestArrow?.let { currentOnArrowTapped(it) }
                     }
                 }
                 .testTag("game_board_canvas")
@@ -142,28 +157,33 @@ fun GameBoard(
             val cellW = size.width / (level.cols + 1)
             val cellH = size.height / (level.rows + 1)
 
-            // 1. Draw Dot Grid for unoccupied intersections
-            val occupiedPoints = mutableSetOf<GridPoint>()
-            arrows.filter { it.state != ArrowState.REMOVED }.forEach { arrow ->
-                for (i in 0 until arrow.points.size - 1) {
-                    val p1 = arrow.points[i]
-                    val p2 = arrow.points[i + 1]
-                    val minX = min(p1.x, p2.x)
-                    val maxX = max(p1.x, p2.x)
-                    val minY = min(p1.y, p2.y)
-                    val maxY = max(p1.y, p2.y)
-                    for (x in minX..maxX) {
-                        for (y in minY..maxY) {
-                            occupiedPoints.add(GridPoint(x, y))
+            // 1. Draw Dot Grid for unoccupied intersections (flat array, zero object allocations)
+            val cols = level.cols
+            val rows = level.rows
+            val occupied = BooleanArray(cols * rows)
+            for (arrow in arrows) {
+                if (arrow.state != ArrowState.REMOVED) {
+                    val pts = arrow.points
+                    for (i in 0 until pts.size - 1) {
+                        val p1 = pts[i]
+                        val p2 = pts[i + 1]
+                        val minX = min(p1.x, p2.x).coerceIn(0, cols - 1)
+                        val maxX = max(p1.x, p2.x).coerceIn(0, cols - 1)
+                        val minY = min(p1.y, p2.y).coerceIn(0, rows - 1)
+                        val maxY = max(p1.y, p2.y).coerceIn(0, rows - 1)
+                        for (x in minX..maxX) {
+                            for (y in minY..maxY) {
+                                occupied[y * cols + x] = true
+                            }
                         }
                     }
                 }
             }
 
             val dotRadius = 2.4.dp.toPx()
-            for (x in 0 until level.cols) {
-                for (y in 0 until level.rows) {
-                    if (!occupiedPoints.contains(GridPoint(x, y))) {
+            for (x in 0 until cols) {
+                for (y in 0 until rows) {
+                    if (!occupied[y * cols + x]) {
                         drawCircle(
                             color = DotGridColor,
                             radius = dotRadius,

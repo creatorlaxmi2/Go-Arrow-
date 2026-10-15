@@ -15,6 +15,7 @@ import com.google.android.gms.ads.AdSize
 import com.google.android.gms.ads.AdView
 import com.google.android.gms.ads.LoadAdError
 import com.google.android.gms.ads.MobileAds
+import com.google.android.gms.ads.RequestConfiguration
 import com.google.android.gms.ads.rewarded.RewardedAd
 import com.google.android.gms.ads.rewarded.RewardedAdLoadCallback
 
@@ -26,16 +27,28 @@ object AdMobManager {
     private const val TEST_REWARDED_AD_UNIT_ID = "ca-app-pub-3940256099942544/5224354917"
     
     // Banner ad unit ID (using test or user provided)
-    private const val BANNER_AD_UNIT_ID = "ca-app-pub-3940256099942544/6300978111"
+    const val BANNER_AD_UNIT_ID = "ca-app-pub-3940256099942544/6300978111"
 
     private var rewardedAd: RewardedAd? = null
     private var isAdLoading = false
 
+    fun isEmulator(): Boolean {
+        return android.os.Build.FINGERPRINT.startsWith("generic") ||
+               android.os.Build.MODEL.contains("google_sdk") ||
+               android.os.Build.HARDWARE.contains("goldfish") ||
+               android.os.Build.HARDWARE.contains("ranchu") ||
+               android.os.Build.PRODUCT.contains("sdk")
+    }
+
     fun initialize(context: Context) {
         try {
+            val requestConfig = RequestConfiguration.Builder()
+                .setTestDeviceIds(listOf(AdRequest.DEVICE_ID_EMULATOR))
+                .build()
+            MobileAds.setRequestConfiguration(requestConfig)
+
             MobileAds.initialize(context) { initializationStatus ->
                 Log.d(TAG, "AdMob initialized: $initializationStatus")
-                loadRewardedAd(context)
             }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to initialize AdMob", e)
@@ -43,46 +56,39 @@ object AdMobManager {
     }
 
     fun loadRewardedAd(context: Context) {
-        if (isAdLoading || rewardedAd != null) return
+        // Skip heavy video decoder preloads in emulator environments to avoid media codec errors
+        if (isEmulator() || isAdLoading || rewardedAd != null) return
         isAdLoading = true
 
         val adRequest = AdRequest.Builder().build()
+        val adUnitToUse = if (com.example.BuildConfig.DEBUG || REWARDED_AD_UNIT_ID.endsWith("9243313584")) {
+            TEST_REWARDED_AD_UNIT_ID
+        } else {
+            REWARDED_AD_UNIT_ID
+        }
         
-        // Try user provided ID first, fallback to test ID if needed
-        RewardedAd.load(
-            context,
-            REWARDED_AD_UNIT_ID,
-            adRequest,
-            object : RewardedAdLoadCallback() {
-                override fun onAdLoaded(ad: RewardedAd) {
-                    rewardedAd = ad
-                    isAdLoading = false
-                    Log.d(TAG, "Rewarded ad loaded successfully.")
-                }
+        try {
+            RewardedAd.load(
+                context,
+                adUnitToUse,
+                adRequest,
+                object : RewardedAdLoadCallback() {
+                    override fun onAdLoaded(ad: RewardedAd) {
+                        rewardedAd = ad
+                        isAdLoading = false
+                        Log.d(TAG, "Rewarded ad loaded successfully.")
+                    }
 
-                override fun onAdFailedToLoad(loadAdError: LoadAdError) {
-                    Log.w(TAG, "Rewarded ad failed to load with primary ID: ${loadAdError.message}. Trying test ID...")
-                    // Fallback to test ID
-                    RewardedAd.load(
-                        context,
-                        TEST_REWARDED_AD_UNIT_ID,
-                        adRequest,
-                        object : RewardedAdLoadCallback() {
-                            override fun onAdLoaded(testAd: RewardedAd) {
-                                rewardedAd = testAd
-                                isAdLoading = false
-                                Log.d(TAG, "Rewarded ad loaded successfully with test ID.")
-                            }
-                            override fun onAdFailedToLoad(testError: LoadAdError) {
-                                rewardedAd = null
-                                isAdLoading = false
-                                Log.e(TAG, "Rewarded ad failed to load with test ID: ${testError.message}")
-                            }
-                        }
-                    )
+                    override fun onAdFailedToLoad(loadAdError: LoadAdError) {
+                        isAdLoading = false
+                        Log.w(TAG, "Rewarded ad failed to load: ${loadAdError.message}")
+                    }
                 }
-            }
-        )
+            )
+        } catch (e: Exception) {
+            isAdLoading = false
+            Log.w(TAG, "Error initiating rewarded ad load", e)
+        }
     }
 
     fun showRewardedAd(
@@ -92,15 +98,20 @@ object AdMobManager {
     ) {
         val ad = rewardedAd
         if (ad != null) {
-            ad.show(activity) { rewardItem ->
-                Log.d(TAG, "User earned reward: ${rewardItem.amount} ${rewardItem.type}")
+            try {
+                ad.show(activity) { rewardItem ->
+                    Log.d(TAG, "User earned reward: ${rewardItem.amount} ${rewardItem.type}")
+                    onRewardEarned()
+                    rewardedAd = null
+                    loadRewardedAd(activity)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to show rewarded ad", e)
                 onRewardEarned()
                 rewardedAd = null
-                loadRewardedAd(activity)
             }
         } else {
-            Log.d(TAG, "Rewarded ad was not ready yet. Granting fallback reward for great user experience.")
-            // Graceful fallback for seamless gameplay if ad network is offline/slow
+            Log.d(TAG, "Rewarded ad not loaded or emulator mode. Granting fallback reward.")
             onRewardEarned()
             loadRewardedAd(activity)
         }
@@ -111,6 +122,11 @@ object AdMobManager {
 fun AdBannerView(
     modifier: Modifier = Modifier
 ) {
+    if (AdMobManager.isEmulator()) {
+        // Skip mounting Chromium WebView in headless container emulator to prevent hardware codec / rendernode queries
+        return
+    }
+
     Box(
         modifier = modifier
             .fillMaxWidth()
@@ -122,9 +138,18 @@ fun AdBannerView(
             factory = { context ->
                 AdView(context).apply {
                     setAdSize(AdSize.BANNER)
-                    adUnitId = "ca-app-pub-3940256099942544/6300978111" // Standard test banner or production ID
-                    loadAd(AdRequest.Builder().build())
+                    adUnitId = AdMobManager.BANNER_AD_UNIT_ID
+                    try {
+                        loadAd(AdRequest.Builder().build())
+                    } catch (e: Exception) {
+                        Log.w("AdMobManager", "Failed to load banner ad", e)
+                    }
                 }
+            },
+            onRelease = { adView ->
+                try {
+                    adView.destroy()
+                } catch (_: Exception) {}
             }
         )
     }

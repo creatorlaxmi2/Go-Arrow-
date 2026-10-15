@@ -82,7 +82,7 @@ fun GameOverModal(
                 Spacer(modifier = Modifier.height(8.dp))
 
                 Text(
-                    text = "Out of hearts! Watch a rewarded ad to revive with +3 hearts or restart.",
+                    text = "Out of hearts! Tap Try Again for a fresh puzzle design, or watch an ad to revive.",
                     fontSize = 14.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center
@@ -123,11 +123,11 @@ fun GameOverModal(
                     colors = ButtonDefaults.buttonColors(containerColor = ElectricBlue),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(50.dp)
+                        .height(52.dp)
                         .testTag("game_over_restart_button")
                 ) {
                     Icon(imageVector = Icons.Default.Refresh, contentDescription = null)
-                    Text(text = " Restart Level", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                    Text(text = " Try Again (New Puzzle)", fontWeight = FontWeight.Bold, fontSize = 16.sp)
                 }
 
                 Spacer(modifier = Modifier.height(10.dp))

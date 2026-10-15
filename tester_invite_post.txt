@@ -1,0 +1,20 @@
+🎮 Join the Closed Testing for Go Arrow Puzzle!
+
+Hey everyone! 👋 
+
+I'm excited to invite you to test my new logic puzzle game, Go Arrow Puzzle! Tap and clear arrows in the correct directions, solve challenging levels, earn stars, and test your spatial reasoning.
+
+To help me test and polish the game before its official Google Play launch, please follow these simple steps:
+
+1. Join our Tester Google Group first:
+   - Web Link: https://groups.google.com/g/creatorlaxmi2
+   - Email: creatorlaxmi2@googlegroups.com
+   (You must join this group with your Google account so Google Play recognizes you as an authorized tester).
+
+2. Download and test the app on Google Play:
+   https://play.google.com/store/apps/details?id=com.aistudio.arrowpuzzle.qvkztp
+
+3. Share your feedback:
+   Please let me know if you encounter any bugs, have suggestions for new levels, or share your thoughts on the gameplay and audio/haptic effects!
+
+Thank you so much for your support in making this game better! 🚀🧩

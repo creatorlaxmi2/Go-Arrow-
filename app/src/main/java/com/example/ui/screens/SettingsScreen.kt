@@ -177,7 +177,7 @@ fun SettingsScreen(
                 SettingToggleItem(
                     icon = Icons.AutoMirrored.Filled.VolumeUp,
                     iconTint = ElectricBlue,
-                    title = "Sound Effects",
+                    title = "Sound & Music",
                     checked = isSoundEnabled,
                     onCheckedChange = onToggleSound,
                     tag = "sound_switch"
