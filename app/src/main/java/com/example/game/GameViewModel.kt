@@ -1,504 +1,511 @@
 package com.example.game
 
+import android.content.Context
+import android.media.AudioManager
+import android.media.ToneGenerator
+import android.os.Build
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
-import com.example.audio.HapticManager
-import com.example.audio.SoundManager
+import com.example.data.levels.ArrowPath
+import com.example.data.levels.GridPoint
+import com.example.data.levels.LevelData
 import com.example.data.levels.LevelRepository
+import com.example.data.local.GameDao
 import com.example.data.local.GameEntity
 import com.example.data.local.UserSettingsEntity
-import com.example.data.model.ArrowModel
-import com.example.data.model.ArrowState
-import com.example.data.model.LevelData
-import com.example.data.repository.GameRepository
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlin.math.sin
-
-enum class GameStatus {
-    PLAYING,
-    LEVEL_COMPLETE,
-    GAME_OVER,
-    PAUSED
-}
-
-data class UndoSnapshot(
-    val arrows: List<ArrowModel>,
-    val moves: Int,
-    val score: Int
-)
+import java.util.Calendar
 
 data class GameUiState(
     val currentLevelId: Int = 1,
-    val levelData: LevelData? = null,
-    val arrows: List<ArrowModel> = emptyList(),
-    val heartsRemaining: Int = 3,
+    val levelData: LevelData = LevelRepository.getLevel(1),
+    val remainingArrows: List<ArrowPath> = emptyList(),
+    val exitingArrowIds: Set<Int> = emptySet(),
+    val blockedArrowId: Int? = null,
+    val hintArrowId: Int? = null,
+    val lives: Int = 3,
+    val maxLives: Int = 3,
     val moves: Int = 0,
-    val score: Int = 0,
-    val elapsedTimeSeconds: Int = 0,
-    val gameStatus: GameStatus = GameStatus.PLAYING,
-    val starsEarned: Int = 0,
-    val hintsRemaining: Int = 5,
-    val canUndo: Boolean = false,
+    val isLevelComplete: Boolean = false,
+    val isGameOver: Boolean = false,
+    val isPaused: Boolean = false,
+    val earnedStars: Int = 3,
+    val unlockedLevels: Set<Int> = setOf(1),
+    val levelStars: Map<Int, Int> = emptyMap(),
+    val totalStars: Int = 0,
+    val completedLevelsCount: Int = 0,
     val isSoundEnabled: Boolean = true,
     val isHapticsEnabled: Boolean = true,
     val isDarkMode: Boolean = false,
-    val completedLevels: Map<Int, GameEntity> = emptyMap(),
-    val totalStars: Int = 0,
-    val isDailyChallenge: Boolean = false,
-    val difficulty: String = "Normal"
+    val difficulty: String = "Normal",
+    val canUndo: Boolean = false
 )
 
 class GameViewModel(
-    private val repository: GameRepository,
-    private val soundManager: SoundManager,
-    private val hapticManager: HapticManager
+    private val gameDao: GameDao?,
+    private val appContext: Context? = null
 ) : ViewModel() {
 
-    private val _uiState = MutableStateFlow(GameUiState())
+    private val _uiState = MutableStateFlow(
+        run {
+            val initialLevel = LevelRepository.getLevel(1, "Normal")
+            GameUiState(
+                currentLevelId = 1,
+                levelData = initialLevel,
+                remainingArrows = initialLevel.arrows
+            )
+        }
+    )
     val uiState: StateFlow<GameUiState> = _uiState.asStateFlow()
 
-    private val undoStack = mutableListOf<UndoSnapshot>()
-    private var timerJob: Job? = null
-    private var shakeJob: Job? = null
-    private var moveJob: Job? = null
+    private val removedHistory = ArrayDeque<ArrowPath>()
 
     init {
-        viewModelScope.launch {
-            repository.initializeDefaults()
-        }
-
-        viewModelScope.launch {
-            repository.userSettingsFlow.collect { settings ->
-                soundManager.isSoundEnabled = settings.soundEnabled
-                hapticManager.isHapticsEnabled = settings.hapticsEnabled
-                _uiState.update {
-                    it.copy(
-                        hintsRemaining = settings.hintsCount,
-                        isSoundEnabled = settings.soundEnabled,
-                        isHapticsEnabled = settings.hapticsEnabled,
-                        isDarkMode = settings.darkModeEnabled,
-                        difficulty = settings.difficulty
-                    )
-                }
-            }
-        }
-
-        viewModelScope.launch {
-            repository.levelRecordsFlow.collect { records ->
-                val recordMap = records.associateBy { it.levelId }
-                val total = records.sumOf { it.stars }
-                _uiState.update {
-                    it.copy(
-                        completedLevels = recordMap,
-                        totalStars = total
-                    )
-                }
-            }
-        }
-
-        loadLevel(1)
+        observePersistence()
     }
 
-    fun loadLevel(levelId: Int, isDaily: Boolean = false) {
-        moveJob?.cancel()
-        moveJob = null
-        shakeJob?.cancel()
-        shakeJob = null
-        timerJob?.cancel()
-        timerJob = null
+    private fun observePersistence() {
+        if (gameDao == null) return
 
-        val currentDifficulty = _uiState.value.difficulty
-        val level = LevelRepository.getLevel(levelId, isRestart = false, difficultySetting = currentDifficulty)
-        undoStack.clear()
+        viewModelScope.launch {
+            val existing = gameDao.getLevelProgress(1)
+            if (existing == null) {
+                gameDao.upsertProgress(
+                    GameEntity(levelId = 1, isUnlocked = true, isCompleted = false, stars = 0, bestMoves = 0)
+                )
+            }
+        }
 
+        viewModelScope.launch {
+            gameDao.observeAllProgress().collect { list ->
+                val unlocked = mutableSetOf(1)
+                val starsMap = mutableMapOf<Int, Int>()
+                var completedCount = 0
+
+                for (item in list) {
+                    if (item.isUnlocked || item.isCompleted) {
+                        unlocked.add(item.levelId)
+                    }
+                    if (item.isCompleted) {
+                        completedCount++
+                        starsMap[item.levelId] = item.stars
+                        if (item.levelId < LevelRepository.TOTAL_LEVELS) {
+                            unlocked.add(item.levelId + 1)
+                        }
+                    }
+                }
+
+                val highestUnlocked = unlocked.maxOrNull() ?: 1
+                _uiState.update { state ->
+                    state.copy(
+                        unlockedLevels = unlocked,
+                        levelStars = starsMap,
+                        totalStars = starsMap.values.sum(),
+                        completedLevelsCount = completedCount,
+                        currentLevelId = if (state.moves == 0 && !state.levelData.isDailyChallenge) highestUnlocked else state.currentLevelId
+                    )
+                }
+            }
+        }
+
+        viewModelScope.launch {
+            gameDao.observeSettings().collect { settings ->
+                if (settings != null) {
+                    _uiState.update { state ->
+                        state.copy(
+                            isSoundEnabled = settings.isSoundEnabled,
+                            isHapticsEnabled = settings.isHapticsEnabled,
+                            isDarkMode = settings.isDarkMode,
+                            difficulty = settings.difficulty
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    fun loadLevel(levelId: Int) {
+        val targetId = levelId.coerceIn(1, LevelRepository.TOTAL_LEVELS)
+        val diff = _uiState.value.difficulty
+        val level = LevelRepository.getLevel(targetId, diff)
+        removedHistory.clear()
         _uiState.update {
             it.copy(
-                currentLevelId = levelId,
+                currentLevelId = targetId,
                 levelData = level,
-                arrows = level.arrows.map { a -> a.copy(state = ArrowState.IDLE, flyProgress = 0f, shakeOffset = 0f) },
-                heartsRemaining = 3,
+                remainingArrows = level.arrows,
+                exitingArrowIds = emptySet(),
+                blockedArrowId = null,
+                hintArrowId = null,
+                lives = 3,
                 moves = 0,
-                score = 0,
-                elapsedTimeSeconds = 0,
-                gameStatus = GameStatus.PLAYING,
-                starsEarned = 0,
-                canUndo = false,
-                isDailyChallenge = isDaily
+                isLevelComplete = false,
+                isGameOver = false,
+                isPaused = false,
+                earnedStars = 3,
+                canUndo = false
             )
         }
-
-        soundManager.resumeBgm()
-        startTimer()
     }
 
-    private fun startTimer() {
-        timerJob?.cancel()
-        timerJob = viewModelScope.launch {
-            while (_uiState.value.gameStatus == GameStatus.PLAYING) {
-                delay(1000)
-                _uiState.update { it.copy(elapsedTimeSeconds = it.elapsedTimeSeconds + 1) }
-            }
-        }
+    fun startNextAvailableLevel() {
+        val highest = _uiState.value.unlockedLevels.maxOrNull() ?: 1
+        loadLevel(highest)
     }
 
-    fun onArrowTap(arrow: ArrowModel) {
-        val state = _uiState.value
-        if (state.gameStatus != GameStatus.PLAYING) return
-        if (arrow.state == ArrowState.FLYING || arrow.state == ArrowState.REMOVED || arrow.state == ArrowState.BLOCKED) return
-        if (state.arrows.any { it.state == ArrowState.FLYING }) return
-
-        val level = state.levelData ?: return
-        val activeArrows = state.arrows.filter { it.state != ArrowState.REMOVED }
-
-        soundManager.playTap()
-        hapticManager.vibrateTap()
-
-        val isClear = CollisionEngine.isArrowClear(
-            arrow = arrow,
-            otherActiveArrows = activeArrows,
-            cols = level.cols,
-            rows = level.rows
-        )
-
-        if (isClear) {
-            handleValidMove(arrow)
-        } else {
-            handleBlockedMove(arrow)
-        }
-    }
-
-    private fun handleValidMove(arrow: ArrowModel) {
-        // Record undo state before moving
-        undoStack.add(
-            UndoSnapshot(
-                arrows = _uiState.value.arrows,
-                moves = _uiState.value.moves,
-                score = _uiState.value.score
-            )
-        )
-
-        val newMoves = _uiState.value.moves + 1
-        val newScore = _uiState.value.score + 100
-
-        soundManager.playSuccess()
-        hapticManager.vibrateSuccess()
-
-        // Animate flying arrow smoothly with FastOutSlowIn acceleration
-        moveJob?.cancel()
-        moveJob = viewModelScope.launch {
-            val totalFrames = 18
-            val frameDelay = 16L // ~60 FPS
-
-            for (frame in 1..totalFrames) {
-                val t = frame.toFloat() / totalFrames.toFloat()
-                // Smooth acceleration curve: smooth launch, fast slither and shoot
-                val progress = t * t * (3f - 2f * t)
-                _uiState.update { curr ->
-                    if (curr.gameStatus != GameStatus.PLAYING) return@update curr
-                    curr.copy(
-                        arrows = curr.arrows.map {
-                            if (it.id == arrow.id) {
-                                it.copy(state = ArrowState.FLYING, flyProgress = progress)
-                            } else it
-                        },
-                        moves = newMoves,
-                        score = newScore,
-                        canUndo = true
-                    )
-                }
-                delay(frameDelay)
-            }
-
-            // Mark as removed
-            _uiState.update { curr ->
-                if (curr.gameStatus != GameStatus.PLAYING) return@update curr
-                curr.copy(
-                    arrows = curr.arrows.map {
-                        if (it.id == arrow.id) {
-                            it.copy(state = ArrowState.REMOVED, flyProgress = 1f)
-                        } else it
-                    }
-                )
-            }
-
-            // Check if level complete
-            val remaining = _uiState.value.arrows.count { it.state != ArrowState.REMOVED }
-            if (remaining == 0 && _uiState.value.gameStatus == GameStatus.PLAYING) {
-                handleLevelComplete()
-            }
-        }
-    }
-
-    private fun handleBlockedMove(arrow: ArrowModel) {
-        val currentHearts = _uiState.value.heartsRemaining
-        if (currentHearts <= 0) return
-
-        val newHearts = currentHearts - 1
-
-        soundManager.playBlocked()
-        hapticManager.vibrateBlocked()
-
-        val level = _uiState.value.levelData
-        val activeArrows = _uiState.value.arrows.filter { it.state != ArrowState.REMOVED }
-        val blockingArrow = if (level != null) {
-            CollisionEngine.findBlockingArrow(
-                arrow = arrow,
-                otherActiveArrows = activeArrows,
-                cols = level.cols,
-                rows = level.rows
-            )
-        } else null
-
-        shakeJob?.cancel()
-        shakeJob = viewModelScope.launch {
-            val steps = 14
-            val stepDelay = 16L
-            for (step in 1..steps) {
-                val t = step.toFloat() / steps.toFloat()
-                // Damped elastic bump recoil in direction of arrow
-                val offset = sin(t * Math.PI.toFloat() * 3.5f) * (1f - t) * 11f
-                _uiState.update { curr ->
-                    if (curr.gameStatus != GameStatus.PLAYING) return@update curr
-                    curr.copy(
-                        arrows = curr.arrows.map {
-                            when (it.id) {
-                                arrow.id -> it.copy(state = ArrowState.BLOCKED, shakeOffset = offset)
-                                blockingArrow?.id -> it.copy(state = ArrowState.HINTED) // flash blocking obstacle!
-                                else -> it
-                            }
-                        },
-                        heartsRemaining = newHearts
-                    )
-                }
-                delay(stepDelay)
-            }
-
-            // Reset to idle
-            _uiState.update { curr ->
-                if (curr.gameStatus != GameStatus.PLAYING) return@update curr
-                curr.copy(
-                    arrows = curr.arrows.map {
-                        if (it.id == arrow.id || it.id == blockingArrow?.id) {
-                            it.copy(state = ArrowState.IDLE, shakeOffset = 0f)
-                        } else it
-                    }
-                )
-            }
-
-            if (newHearts <= 0) {
-                timerJob?.cancel()
-                _uiState.update { curr ->
-                    if (curr.gameStatus == GameStatus.PLAYING) {
-                        curr.copy(gameStatus = GameStatus.GAME_OVER)
-                    } else curr
-                }
-            }
-        }
-    }
-
-    private fun handleLevelComplete() {
-        timerJob?.cancel()
-        val hearts = _uiState.value.heartsRemaining
-        val stars = when (hearts) {
-            3 -> 3
-            2 -> 2
-            else -> 1
-        }
-
-        val finalScore = _uiState.value.score + (hearts * 150) - (_uiState.value.moves * 5)
-            .coerceAtLeast(0)
-
-        soundManager.playLevelComplete()
-        hapticManager.vibrateLevelComplete()
-
+    fun startDailyChallenge() {
+        val cal = Calendar.getInstance()
+        val seed = cal.get(Calendar.YEAR) * 10000 + (cal.get(Calendar.MONTH) + 1) * 100 + cal.get(Calendar.DAY_OF_MONTH)
+        val level = LevelRepository.getDailyChallengeLevel(seed, _uiState.value.difficulty)
+        removedHistory.clear()
         _uiState.update {
             it.copy(
-                gameStatus = GameStatus.LEVEL_COMPLETE,
-                starsEarned = stars,
-                score = maxOf(finalScore, 100)
+                currentLevelId = level.id,
+                levelData = level,
+                remainingArrows = level.arrows,
+                exitingArrowIds = emptySet(),
+                blockedArrowId = null,
+                hintArrowId = null,
+                lives = 3,
+                moves = 0,
+                isLevelComplete = false,
+                isGameOver = false,
+                isPaused = false,
+                earnedStars = 3,
+                canUndo = false
             )
         }
+    }
 
-        viewModelScope.launch {
-            repository.saveLevelCompletion(
-                levelId = _uiState.value.currentLevelId,
-                stars = stars,
-                score = maxOf(finalScore, 100),
-                moves = _uiState.value.moves,
-                timeSeconds = _uiState.value.elapsedTimeSeconds
+    fun retryLevel() {
+        val current = _uiState.value.levelData
+        removedHistory.clear()
+        _uiState.update {
+            it.copy(
+                remainingArrows = current.arrows,
+                exitingArrowIds = emptySet(),
+                blockedArrowId = null,
+                hintArrowId = null,
+                lives = 3,
+                moves = 0,
+                isLevelComplete = false,
+                isGameOver = false,
+                isPaused = false,
+                earnedStars = 3,
+                canUndo = false
             )
+        }
+    }
+
+    fun nextLevel() {
+        val nextId = if (_uiState.value.levelData.isDailyChallenge) {
+            _uiState.value.unlockedLevels.maxOrNull() ?: 1
+        } else {
+            (_uiState.value.currentLevelId + 1).coerceAtMost(LevelRepository.TOTAL_LEVELS)
+        }
+        loadLevel(nextId)
+    }
+
+    fun onArrowTapped(arrowId: Int) {
+        val state = _uiState.value
+        if (state.isLevelComplete || state.isGameOver || state.isPaused) return
+        if (arrowId in state.exitingArrowIds) return
+
+        val arrow = state.remainingArrows.firstOrNull { it.id == arrowId } ?: return
+        val occupiedCells = HashSet<GridPoint>(state.remainingArrows.size * 4)
+        for (other in state.remainingArrows) {
+            if (other.id != arrowId && other.id !in state.exitingArrowIds) {
+                occupiedCells.addAll(other.points)
+            }
+        }
+
+        val clear = isPathClear(arrow, state.levelData.cols, state.levelData.rows, occupiedCells)
+        if (clear) {
+            playFeedback(success = true)
+            removedHistory.addLast(arrow)
+            _uiState.update {
+                it.copy(
+                    exitingArrowIds = it.exitingArrowIds + arrowId,
+                    blockedArrowId = null,
+                    hintArrowId = if (it.hintArrowId == arrowId) null else it.hintArrowId,
+                    moves = it.moves + 1,
+                    canUndo = true
+                )
+            }
+
+            viewModelScope.launch {
+                delay(140)
+                var completedNow = false
+                var finalStars = 3
+                var clearedLevelId = 1
+                var finalMoves = 0
+                var isDaily = false
+
+                _uiState.update { current ->
+                    val updatedRemaining = current.remainingArrows.filterNot { it.id == arrowId }
+                    val updatedExiting = current.exitingArrowIds - arrowId
+                    completedNow = updatedRemaining.isEmpty()
+                    finalStars = current.lives.coerceIn(1, 3)
+                    clearedLevelId = current.currentLevelId
+                    finalMoves = current.moves
+                    isDaily = current.levelData.isDailyChallenge
+
+                    val newUnlocked = if (completedNow && !isDaily && clearedLevelId < LevelRepository.TOTAL_LEVELS) {
+                        current.unlockedLevels + (clearedLevelId + 1)
+                    } else {
+                        current.unlockedLevels
+                    }
+                    val prevStars = current.levelStars[clearedLevelId] ?: 0
+                    val newLevelStars = if (completedNow && !isDaily) {
+                        current.levelStars + (clearedLevelId to maxOf(prevStars, finalStars))
+                    } else {
+                        current.levelStars
+                    }
+
+                    current.copy(
+                        remainingArrows = updatedRemaining,
+                        exitingArrowIds = updatedExiting,
+                        isLevelComplete = completedNow,
+                        earnedStars = finalStars,
+                        unlockedLevels = newUnlocked,
+                        levelStars = newLevelStars,
+                        totalStars = newLevelStars.values.sum(),
+                        completedLevelsCount = newLevelStars.size
+                    )
+                }
+
+                if (completedNow && !isDaily && gameDao != null) {
+                    val existing = gameDao.getLevelProgress(clearedLevelId)
+                    val bestStars = maxOf(existing?.stars ?: 0, finalStars)
+                    val bestMoves = if (existing == null || existing.bestMoves == 0) finalMoves else minOf(existing.bestMoves, finalMoves)
+                    gameDao.upsertProgress(
+                        GameEntity(
+                            levelId = clearedLevelId,
+                            isUnlocked = true,
+                            isCompleted = true,
+                            stars = bestStars,
+                            bestMoves = bestMoves
+                        )
+                    )
+                    if (clearedLevelId < LevelRepository.TOTAL_LEVELS) {
+                        val nextExisting = gameDao.getLevelProgress(clearedLevelId + 1)
+                        if (nextExisting == null) {
+                            gameDao.upsertProgress(
+                                GameEntity(
+                                    levelId = clearedLevelId + 1,
+                                    isUnlocked = true,
+                                    isCompleted = false,
+                                    stars = 0,
+                                    bestMoves = 0
+                                )
+                            )
+                        }
+                    }
+                }
+            }
+        } else {
+            playFeedback(success = false)
+            val newLives = (state.lives - 1).coerceAtLeast(0)
+            _uiState.update {
+                it.copy(
+                    blockedArrowId = arrowId,
+                    lives = newLives,
+                    moves = it.moves + 1,
+                    isGameOver = newLives <= 0
+                )
+            }
+            viewModelScope.launch {
+                delay(450)
+                _uiState.update {
+                    if (it.blockedArrowId == arrowId) it.copy(blockedArrowId = null) else it
+                }
+            }
         }
     }
 
     fun useHint() {
-        if (_uiState.value.hintsRemaining <= 0) return
-        val level = _uiState.value.levelData ?: return
-        val active = _uiState.value.arrows.filter { it.state != ArrowState.REMOVED && it.state != ArrowState.FLYING }
-        val safeArrows = CollisionEngine.findSafeArrows(active, level.cols, level.rows)
+        val state = _uiState.value
+        if (state.isLevelComplete || state.isGameOver || state.remainingArrows.isEmpty()) return
 
-        if (safeArrows.isNotEmpty()) {
-            val chosen = safeArrows.first()
-            viewModelScope.launch {
-                repository.consumeHint()
-            }
-
-            soundManager.playTap()
-            hapticManager.vibrateTap()
-
-            _uiState.update { curr ->
-                curr.copy(
-                    arrows = curr.arrows.map {
-                        if (it.id == chosen.id) {
-                            it.copy(state = ArrowState.HINTED)
-                        } else if (it.state == ArrowState.HINTED) {
-                            it.copy(state = ArrowState.IDLE)
-                        } else it
-                    }
-                )
-            }
-
-            // Remove hint after 4 seconds
-            viewModelScope.launch {
-                delay(4000)
-                _uiState.update { curr ->
-                    curr.copy(
-                        arrows = curr.arrows.map {
-                            if (it.id == chosen.id && it.state == ArrowState.HINTED) {
-                                it.copy(state = ArrowState.IDLE)
-                            } else it
-                        }
-                    )
+        val allPointsByArrow = state.remainingArrows.associate { it.id to it.points }
+        for (candidate in state.remainingArrows) {
+            if (candidate.id in state.exitingArrowIds) continue
+            val occupied = HashSet<GridPoint>()
+            for ((otherId, pts) in allPointsByArrow) {
+                if (otherId != candidate.id && otherId !in state.exitingArrowIds) {
+                    occupied.addAll(pts)
                 }
             }
+            if (isPathClear(candidate, state.levelData.cols, state.levelData.rows, occupied)) {
+                _uiState.update { it.copy(hintArrowId = candidate.id) }
+                return
+            }
         }
     }
 
-    fun addBonusHints(amount: Int = 3) {
-        viewModelScope.launch {
-            repository.addHints(amount)
-        }
-    }
-
-    fun undo() {
-        if (undoStack.isEmpty()) return
-        val lastState = undoStack.removeAt(undoStack.lastIndex)
-        soundManager.playUndo()
-
+    fun undoLastMove() {
+        val state = _uiState.value
+        if (removedHistory.isEmpty() || state.isLevelComplete || state.isGameOver) return
+        val restored = removedHistory.removeLast()
         _uiState.update {
             it.copy(
-                arrows = lastState.arrows,
-                moves = lastState.moves,
-                score = lastState.score,
-                canUndo = undoStack.isNotEmpty()
+                remainingArrows = it.remainingArrows + restored,
+                hintArrowId = null,
+                blockedArrowId = null,
+                canUndo = removedHistory.isNotEmpty()
             )
         }
     }
 
-    fun restartLevel() {
-        moveJob?.cancel()
-        moveJob = null
-        shakeJob?.cancel()
-        shakeJob = null
-        timerJob?.cancel()
-        timerJob = null
-        undoStack.clear()
+    fun setPaused(paused: Boolean) {
+        _uiState.update { it.copy(isPaused = paused) }
+    }
 
-        val currentId = _uiState.value.currentLevelId
-        val isDaily = _uiState.value.isDailyChallenge
-        val currentDifficulty = _uiState.value.difficulty
+    fun toggleSound(enabled: Boolean) {
+        _uiState.update { it.copy(isSoundEnabled = enabled) }
+        persistCurrentSettings()
+    }
 
-        val newLevel = LevelRepository.getLevel(currentId, isRestart = true, difficultySetting = currentDifficulty)
+    fun toggleHaptics(enabled: Boolean) {
+        _uiState.update { it.copy(isHapticsEnabled = enabled) }
+        persistCurrentSettings()
+    }
 
-        _uiState.update {
-            it.copy(
-                currentLevelId = currentId,
-                levelData = newLevel,
-                arrows = newLevel.arrows.map { a -> a.copy(state = ArrowState.IDLE, flyProgress = 0f, shakeOffset = 0f) },
-                heartsRemaining = 3,
-                moves = 0,
-                score = 0,
-                elapsedTimeSeconds = 0,
-                gameStatus = GameStatus.PLAYING,
-                starsEarned = 0,
-                canUndo = false,
-                isDailyChallenge = isDaily
-            )
-        }
-
-        soundManager.resumeBgm()
-        startTimer()
+    fun toggleDarkMode(enabled: Boolean) {
+        _uiState.update { it.copy(isDarkMode = enabled) }
+        persistCurrentSettings()
     }
 
     fun setDifficulty(difficulty: String) {
         _uiState.update { it.copy(difficulty = difficulty) }
-        viewModelScope.launch {
-            repository.updateSettings(difficulty = difficulty)
-        }
-        loadLevel(_uiState.value.currentLevelId, _uiState.value.isDailyChallenge)
-    }
-
-    fun nextLevel() {
-        loadLevel(_uiState.value.currentLevelId + 1)
-    }
-
-    fun pauseGame() {
-        if (_uiState.value.gameStatus == GameStatus.PLAYING) {
-            timerJob?.cancel()
-            soundManager.pauseBgm()
-            _uiState.update { it.copy(gameStatus = GameStatus.PAUSED) }
-        }
-    }
-
-    fun resumeGame() {
-        if (_uiState.value.gameStatus == GameStatus.PAUSED) {
-            _uiState.update { it.copy(gameStatus = GameStatus.PLAYING) }
-            soundManager.resumeBgm()
-            startTimer()
-        }
-    }
-
-    fun reviveGame() {
-        moveJob?.cancel()
-        moveJob = null
-        shakeJob?.cancel()
-        shakeJob = null
-        _uiState.update { curr ->
-            curr.copy(
-                heartsRemaining = 3,
-                gameStatus = GameStatus.PLAYING,
-                arrows = curr.arrows.map {
-                    if (it.state == ArrowState.BLOCKED) it.copy(state = ArrowState.IDLE, shakeOffset = 0f) else it
-                }
-            )
-        }
-        soundManager.resumeBgm()
-        startTimer()
-    }
-
-    fun toggleSound(enabled: Boolean) {
-        soundManager.isSoundEnabled = enabled
-        viewModelScope.launch { repository.updateSettings(sound = enabled) }
-    }
-
-    fun toggleHaptics(enabled: Boolean) {
-        hapticManager.isHapticsEnabled = enabled
-        viewModelScope.launch { repository.updateSettings(haptics = enabled) }
-    }
-
-    fun toggleDarkMode(enabled: Boolean) {
-        viewModelScope.launch { repository.updateSettings(darkMode = enabled) }
+        persistCurrentSettings()
+        loadLevel(_uiState.value.currentLevelId)
     }
 
     fun resetAllProgress() {
+        removedHistory.clear()
+        val level1 = LevelRepository.getLevel(1, _uiState.value.difficulty)
+        _uiState.update {
+            it.copy(
+                currentLevelId = 1,
+                levelData = level1,
+                remainingArrows = level1.arrows,
+                exitingArrowIds = emptySet(),
+                blockedArrowId = null,
+                hintArrowId = null,
+                lives = 3,
+                moves = 0,
+                isLevelComplete = false,
+                isGameOver = false,
+                isPaused = false,
+                unlockedLevels = setOf(1),
+                levelStars = emptyMap(),
+                totalStars = 0,
+                completedLevelsCount = 0,
+                canUndo = false
+            )
+        }
+        if (gameDao != null) {
+            viewModelScope.launch {
+                gameDao.clearAllProgress()
+                gameDao.upsertProgress(
+                    GameEntity(levelId = 1, isUnlocked = true, isCompleted = false, stars = 0, bestMoves = 0)
+                )
+            }
+        }
+    }
+
+    private fun persistCurrentSettings() {
+        if (gameDao == null) return
+        val s = _uiState.value
         viewModelScope.launch {
-            repository.resetProgress()
-            loadLevel(1)
+            gameDao.saveSettings(
+                UserSettingsEntity(
+                    id = 1,
+                    isSoundEnabled = s.isSoundEnabled,
+                    isHapticsEnabled = s.isHapticsEnabled,
+                    isDarkMode = s.isDarkMode,
+                    difficulty = s.difficulty
+                )
+            )
+        }
+    }
+
+    private fun isPathClear(
+        arrow: ArrowPath,
+        cols: Int,
+        rows: Int,
+        occupiedByOthers: Set<GridPoint>
+    ): Boolean {
+        var c = arrow.head.col + arrow.direction.dx
+        var r = arrow.head.row + arrow.direction.dy
+        while (c in 0 until cols && r in 0 until rows) {
+            if (GridPoint(c, r) in occupiedByOthers) {
+                return false
+            }
+            c += arrow.direction.dx
+            r += arrow.direction.dy
+        }
+        return true
+    }
+
+    private var toneGenerator: ToneGenerator? = null
+
+    private fun playFeedback(success: Boolean) {
+        val state = _uiState.value
+        if (state.isSoundEnabled) {
+            try {
+                if (toneGenerator == null) {
+                    toneGenerator = ToneGenerator(AudioManager.STREAM_MUSIC, 45)
+                }
+                val tone = if (success) ToneGenerator.TONE_PROP_ACK else ToneGenerator.TONE_PROP_NACK
+                toneGenerator?.startTone(tone, if (success) 60 else 120)
+            } catch (_: Throwable) {}
+        }
+        if (state.isHapticsEnabled && appContext != null) {
+            try {
+                val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    val vm = appContext.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager
+                    vm?.defaultVibrator
+                } else {
+                    @Suppress("DEPRECATION")
+                    appContext.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+                }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    vibrator?.vibrate(
+                        VibrationEffect.createOneShot(
+                            if (success) 18L else 55L,
+                            VibrationEffect.DEFAULT_AMPLITUDE
+                        )
+                    )
+                }
+            } catch (_: Throwable) {}
+        }
+    }
+    
+    override fun onCleared() {
+        super.onCleared()
+        toneGenerator?.release()
+        toneGenerator = null
+    }
+
+    companion object {
+        fun provideFactory(gameDao: GameDao?, context: Context? = null): ViewModelProvider.Factory {
+            return object : ViewModelProvider.Factory {
+                @Suppress("UNCHECKED_CAST")
+                override fun <T : ViewModel> create(modelClass: Class<T>): T {
+                    return GameViewModel(gameDao, context?.applicationContext) as T
+                }
+            }
         }
     }
 }

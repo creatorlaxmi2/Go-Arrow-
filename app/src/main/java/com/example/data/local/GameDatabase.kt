@@ -37,7 +37,7 @@ abstract class GameDatabase : RoomDatabase() {
                 GameDatabase::class.java,
                 "go_arrow_puzzle.db"
             )
-            .fallbackToDestructiveMigration()
+            .fallbackToDestructiveMigration(true)
             .build()
         }
     }

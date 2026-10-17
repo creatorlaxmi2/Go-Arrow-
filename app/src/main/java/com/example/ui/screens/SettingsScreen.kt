@@ -14,11 +14,13 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
+import androidx.compose.material.icons.filled.Android
 import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.DeleteForever
-import androidx.compose.material.icons.filled.Help
+import androidx.compose.material.icons.automirrored.filled.Help
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.PrivacyTip
@@ -75,6 +77,11 @@ fun SettingsScreen(
     var showPrivacyRightsModal by remember { mutableStateOf(false) }
     var showPrivacyPrefsModal by remember { mutableStateOf(false) }
     var removeAdsModal by remember { mutableStateOf(false) }
+    var showAppBundleDialog by remember { mutableStateOf(false) }
+
+    if (showAppBundleDialog) {
+        AppBundleDownloadDialog(onDismiss = { showAppBundleDialog = false })
+    }
 
     if (showResetDialog) {
         AlertDialog(
@@ -264,7 +271,7 @@ fun SettingsScreen(
         ) {
             Column(modifier = Modifier.padding(vertical = 8.dp)) {
                 SettingNavigationItem(
-                    icon = Icons.Default.Help,
+                    icon = Icons.AutoMirrored.Filled.Help,
                     iconTint = Color(0xFF10B981),
                     title = "Help & How to Play",
                     onClick = { showHowToPlayModal = true }
@@ -292,6 +299,25 @@ fun SettingsScreen(
                     iconTint = BlockedRed,
                     title = "Reset Game Progress",
                     onClick = { showResetDialog = true }
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Card: App Bundles & APK Download Center
+        Card(
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+            modifier = Modifier.fillMaxWidth().testTag("app_bundle_card")
+        ) {
+            Column(modifier = Modifier.padding(vertical = 4.dp)) {
+                SettingNavigationItem(
+                    icon = Icons.Default.Android,
+                    iconTint = ElectricBlue,
+                    title = "App Bundles & APK Download Center",
+                    onClick = { showAppBundleDialog = true }
                 )
             }
         }

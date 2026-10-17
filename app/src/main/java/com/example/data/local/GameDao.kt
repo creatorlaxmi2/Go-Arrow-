@@ -8,28 +8,27 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface GameDao {
+    @Query("SELECT * FROM level_progress ORDER BY levelId ASC")
+    fun observeAllProgress(): Flow<List<GameEntity>>
 
-    @Query("SELECT * FROM level_records ORDER BY levelId ASC")
-    fun getAllLevelRecords(): Flow<List<GameEntity>>
-
-    @Query("SELECT * FROM level_records WHERE levelId = :levelId")
-    suspend fun getLevelRecord(levelId: Int): GameEntity?
-
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertOrUpdateRecord(record: GameEntity)
-
-    @Insert(onConflict = OnConflictStrategy.IGNORE)
-    suspend fun insertAll(records: List<GameEntity>)
-
-    @Query("SELECT * FROM user_settings WHERE id = 1")
-    fun getUserSettingsFlow(): Flow<UserSettingsEntity?>
-
-    @Query("SELECT * FROM user_settings WHERE id = 1")
-    suspend fun getUserSettings(): UserSettingsEntity?
+    @Query("SELECT * FROM level_progress WHERE levelId = :levelId LIMIT 1")
+    suspend fun getLevelProgress(levelId: Int): GameEntity?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun updateUserSettings(settings: UserSettingsEntity)
+    suspend fun upsertProgress(entity: GameEntity)
 
-    @Query("DELETE FROM level_records")
-    suspend fun resetAllProgress()
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertAllProgress(entities: List<GameEntity>)
+
+    @Query("DELETE FROM level_progress")
+    suspend fun clearAllProgress()
+
+    @Query("SELECT * FROM user_settings WHERE id = 1 LIMIT 1")
+    fun observeSettings(): Flow<UserSettingsEntity?>
+
+    @Query("SELECT * FROM user_settings WHERE id = 1 LIMIT 1")
+    suspend fun getSettings(): UserSettingsEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun saveSettings(settings: UserSettingsEntity)
 }

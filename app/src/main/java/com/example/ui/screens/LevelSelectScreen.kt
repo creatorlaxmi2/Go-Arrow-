@@ -69,9 +69,9 @@ fun LevelSelectScreen(
         when (selectedFilter) {
             "Easy" -> allLevels.filter { it in 1..15 }
             "Normal" -> allLevels.filter { it in 16..45 }
-            "Hard" -> allLevels.filter { it in 46..60 }
-            "Very Hard" -> allLevels.filter { it in 61..125 }
-            "Expert" -> allLevels.filter { it in 126..150 }
+            "Hard" -> allLevels.filter { it in 46..75 }
+            "Very Hard" -> allLevels.filter { it in 76..120 }
+            "Expert" -> allLevels.filter { it in 121..150 }
             else -> allLevels
         }
     }
